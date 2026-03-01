@@ -1,0 +1,5 @@
+source: journalctl
+journalctl_filter:
+  - "_TRANSPORT=kernel"
+labels:
+  type: syslog

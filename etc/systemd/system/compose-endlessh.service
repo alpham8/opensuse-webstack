@@ -1,0 +1,17 @@
+[Unit]
+Description=endlessh-go Docker Compose
+Wants=docker.service
+After=docker.service compose-mailcow.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/root/endlessh-go
+ExecStartPre=/bin/sh -c "until /usr/bin/docker info >/dev/null 2>&1; do sleep 2; done"
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down --remove-orphans
+TimeoutStartSec=120
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

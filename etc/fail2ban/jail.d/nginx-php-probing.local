@@ -1,0 +1,19 @@
+[nginx-php-probing]
+backend = auto
+enabled = true
+filter  = nginx-php-probing
+port    = http,https
+# Path to your nginx error.log (adjust if needed)
+logpath  = /var/log/nginx/*_error.log
+
+# Ban after 2 matches:
+maxretry = 2
+
+# Time window in which the 2 matches are counted (here 24 h):
+findtime = 24h
+
+# Ban duration 4 hours:
+bantime  = 4h
+
+# Optional: do not ban own IPs/LAN
+ignoreip = 127.0.0.1/8 ::1 172.22.0.0/16

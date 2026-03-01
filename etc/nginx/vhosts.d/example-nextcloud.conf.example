@@ -1,0 +1,158 @@
+# /etc/nginx/vhosts.d/example-nextcloud.conf.example
+#
+# Example nginx vhost for Nextcloud served via PHP-FPM.
+# Based on the official Nextcloud nginx configuration guide with
+# additional hardening and performance optimizations.
+#
+# Prerequisites:
+#   - Wildcard or domain-specific SSL certificate
+#   - PHP-FPM pool "nextcloud" (upstream "php-nextcloud" defined in base.conf)
+#   - Nextcloud installed in the document root below
+
+# Set the `immutable` cache control option only for assets with a cache busting `v` argument
+map $arg_v $asset_immutable {
+    "" "";
+    default ", immutable";
+}
+
+# --- HTTP to HTTPS redirect ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name cloud.example.com;
+
+    server_tokens off;
+
+    return 301 https://$host$request_uri;
+}
+
+# --- Main HTTPS server block ---
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name cloud.example.com;
+
+    # Path to the root of your Nextcloud installation
+    root /srv/www/vhosts/example.com/cloud.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    server_tokens off;
+
+    include vhosts.d/security-headers.global;
+    add_header X-Robots-Tag "noindex, nofollow" always;
+    fastcgi_hide_header X-Powered-By;
+
+    # Disable proxy cache for this vhost to prevent HMAC errors from aggressive caching
+    proxy_no_cache on;
+    proxy_cache_bypass on;
+
+    # Rule borrowed from `.htaccess` to handle Microsoft DAV clients
+    location = / {
+        if ( $http_user_agent ~ ^DavClnt ) {
+            return 302 /remote.php/webdav/$is_args$args;
+        }
+
+        try_files $uri $uri/ /index.php$request_uri;
+    }
+
+    location = /robots.txt {
+        allow all;
+        log_not_found off;
+        access_log off;
+    }
+
+    # Make a regex exception for `/.well-known` so that clients can still
+    # access it despite the existence of the regex rule
+    # `location ~ /(\.|autotest|...)` which would otherwise handle requests
+    # for `/.well-known`.
+    location ^~ /.well-known {
+        location = /.well-known/carddav { return 301 /remote.php/dav/; }
+        location = /.well-known/caldav  { return 301 /remote.php/dav/; }
+
+        location /.well-known/acme-challenge    { try_files $uri $uri/ =404; }
+        location /.well-known/pki-validation    { try_files $uri $uri/ =404; }
+
+        # Let Nextcloud's API for `/.well-known` URIs handle all other
+        # requests by passing them to the front-end controller.
+        return 301 /index.php$request_uri;
+    }
+
+    # Rules borrowed from `.htaccess` to hide certain paths from clients
+    location ~ ^/(?:build|tests|config|lib|3rdparty|templates|data)(?:$|/)  { return 404; }
+    location ~ ^/(?:\.|autotest|occ|issue|indie|db_|console)                { return 404; }
+
+    # Max upload size (adjust to your needs)
+    client_max_body_size 16384M;
+    fastcgi_buffers 64 4K;
+
+    include vhosts.d/compression.global;
+
+    location / {
+        rewrite ^ /index.php;
+    }
+
+    location ~ ^\/(?:build|tests|config|lib|3rdparty|templates|data)\/ {
+        deny all;
+    }
+    location ~ ^\/(?:\.|autotest|occ|issue|indie|db_|console) {
+        deny all;
+    }
+
+    location ~ ^\/(?:index|remote|public|cron|core\/ajax\/update|status|ocs\/v[12]|updater\/.+|oc[ms]-provider\/.+|.+\/richdocumentscode\/proxy)\.php(?:$|\/) {
+        fastcgi_split_path_info ^(.+?\.php)(\/.*|)$;
+        set $path_info $fastcgi_path_info;
+
+        try_files $fastcgi_script_name =404;
+
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $path_info;
+        fastcgi_param HTTPS on;
+        # Avoid sending the security headers twice
+        fastcgi_param modHeadersAvailable true;
+        # Enable pretty URLs
+        fastcgi_param front_controller_active true;
+        fastcgi_pass php-nextcloud;
+        fastcgi_intercept_errors on;
+    }
+
+     location ~ ^\/(?:updater|oc[ms]-provider)(?:$|\/) {
+         try_files $uri/ =404;
+         index index.php;
+     }
+
+     location ^~ /ocm-provider/ {
+         try_files $uri $uri/ /index.php$request_uri;
+     }
+
+    # Serve static files
+    location ~ \.(?:css|js|mjs|svg|gif|ico|jpg|png|webp|wasm|tflite|map|ogg|flac|webm|mp4)$ {
+        try_files $uri /index.php$request_uri;
+        # HTTP response headers borrowed from Nextcloud `.htaccess`
+        add_header Cache-Control                     "public, max-age=15778463$asset_immutable";
+        add_header Referrer-Policy                   "no-referrer"       always;
+        add_header X-Content-Type-Options            "nosniff"           always;
+        add_header X-Frame-Options                   "SAMEORIGIN"        always;
+        add_header X-Permitted-Cross-Domain-Policies "none"              always;
+        add_header X-Robots-Tag                      "noindex, nofollow" always;
+        add_header X-XSS-Protection                  "1; mode=block"     always;
+        access_log off;
+    }
+
+    location ~ \.(otf|woff2?)$ {
+        try_files $uri /index.php$request_uri;
+        expires 7d;
+        access_log off;
+    }
+
+    # Rule borrowed from `.htaccess`
+    location /remote {
+        return 301 /remote.php$request_uri;
+    }
+
+    access_log /var/log/nginx/nextcloud_access.log;
+    error_log /var/log/nginx/nextcloud_error.log warn;
+}

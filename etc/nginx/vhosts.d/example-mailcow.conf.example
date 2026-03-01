@@ -1,0 +1,32 @@
+# /etc/nginx/vhosts.d/example-mailcow.conf.example
+#
+# Example nginx vhost for a Mailcow mail server hostname.
+# Redirects all HTTP/HTTPS requests on mail.example.com to the main site.
+# This ensures ISPs or users who visit the mail hostname in a browser
+# see your main website instead of an error page.
+#
+# Prerequisites:
+#   - Wildcard or domain-specific SSL certificate
+#   - Mailcow running behind nginx (ports 8080/4443 internally)
+
+# --- HTTP redirect ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name mail.example.com;
+
+    return 301 https://www.example.com;
+}
+
+# --- HTTPS redirect ---
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name mail.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    return 301 https://www.example.com;
+}

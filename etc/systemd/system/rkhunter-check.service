@@ -1,0 +1,23 @@
+# /etc/systemd/system/rkhunter-check.service
+#
+# Daily rkhunter rootkit scan.
+# Results are written to /var/log/rkhunter.log
+# and sent to Grafana Loki via Grafana Alloy.
+#
+# View logs:
+#   journalctl -u rkhunter-check -n 50 --no-pager
+#   cat /var/log/rkhunter.log
+
+[Unit]
+Description=rkhunter rootkit scan
+After=network.target
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/bin/rkhunter --check --skip-keypress --report-warnings-only --logfile /var/log/rkhunter.log
+ExecStartPost=/bin/bash -c 'if grep -q "Warning:" /var/log/rkhunter.log; then echo "rkhunter: WARNINGS FOUND — see /var/log/rkhunter.log" | systemd-cat -t rkhunter -p warning; else echo "rkhunter: No warnings" | systemd-cat -t rkhunter -p info; fi'
+
+# rkhunter returns exit code 1 on warnings — this is not an error
+SuccessExitStatus=1

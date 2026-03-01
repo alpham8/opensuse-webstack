@@ -1,0 +1,116 @@
+# /etc/apparmor.d/php-fpm
+# Optimized AppArmor profile for PHP-FPM (openSUSE Leap 15.6)
+#
+# Changes compared to the logprof-generated profile:
+#   - individual veth entries replaced with wildcards
+#   - /proc/kallsyms + /proc/kcore denied (kernel info leak)
+#   - abstractions/audio + ubuntu-browsers removed
+#   - socket permissions consolidated (wildcard + rwlk)
+#   - capability net_admin removed (not needed without ip command)
+#   - /home/, /run/user/0/, /sys/fs/bpf/ etc. removed
+#
+# After changes: apparmor_parser -r /etc/apparmor.d/php-fpm
+
+abi <abi/3.0>,
+
+include <tunables/global>
+
+profile php-fpm /usr/sbin/php-fpm* flags=(attach_disconnected) {
+  include <abstractions/base>
+  include <abstractions/consoles>
+  include <abstractions/nameservice>
+  include <abstractions/openssl>
+  include <abstractions/php>
+  include <abstractions/ssl_certs>
+  include <abstractions/user-tmp>
+  include if exists <local/php-fpm>
+  include if exists <php-fpm.d>
+
+  # --- Capabilities ---
+  capability chown,
+  capability dac_override,
+  capability kill,
+  capability setgid,
+  capability setuid,
+  capability sys_resource,
+
+  deny capability net_admin,
+  deny capability sys_admin,
+
+  # Signals to worker children
+  signal send peer=php-fpm//*,
+
+  # --- Deny: Kernel info leaks + unnecessary paths ---
+  deny / rw,
+  deny /boot/ r,
+  deny /proc/kallsyms r,
+  deny /proc/kcore r,
+  deny /sys/kernel/config/ r,
+  deny /sys/kernel/tracing/ r,
+  deny /sys/kernel/security/ r,
+  deny /sys/fs/bpf/ r,
+
+  # --- Executables ---
+  /usr/sbin/php-fpm* rix,
+  /usr/bin/bash mrix,
+  /usr/bin/date mrix,
+  /usr/bin/df mrix,
+  /usr/bin/gawk mrix,
+
+  # --- System directories (read/list) ---
+  /bin/ r,
+  /dev/ r,
+  /dev/hugepages/ r,
+  /etc/ r,
+  /etc/ld.so.cache r,
+  /etc/ImageMagick-7-SUSE/** r,
+  /lib/ r,
+  /lib64/ r,
+  /sbin/ r,
+  /usr/ r,
+
+  # --- PID file + sockets (all pools via wildcard) ---
+  @{run}/php*-fpm.pid rw,
+  @{run}/php{,-fpm}/php*-fpm.pid rw,
+  /run/ r,
+  /run/php-fpm/ rw,
+  /run/php-fpm/*.sock rwlk,
+
+  # --- Process info ---
+  @{PROC}/@{pid}/attr/{apparmor/,}current rw,
+  owner /proc/*/mountinfo r,
+  /proc/uptime r,
+
+  # --- Thermal sensors (Nextcloud system check) ---
+  /sys/class/thermal/ r,
+  /sys/devices/virtual/thermal/thermal_zone*/temp r,
+  /sys/devices/virtual/thermal/thermal_zone*/type r,
+
+  # --- Network interfaces: wildcard instead of individual veth entries ---
+  /sys/devices/**/net/*/address r,
+  /sys/devices/**/net/*/duplex r,
+  /sys/devices/**/net/*/speed r,
+
+  # --- Cgroup (PHP-FPM resource management) ---
+  /sys/fs/cgroup/ r,
+  /sys/fs/pstore/ r,
+  /run/credentials/ r,
+  /run/systemd/incoming/ r,
+
+  # --- vHost document roots (rwk: Nextcloud data, uploads, caches etc.) ---
+  /srv/ r,
+  owner /srv/** rwk,
+
+  # --- Logs ---
+  /var/log/php*-fpm.log rw,
+  owner /var/log/nextcloud.log rw,
+  owner /var/log/php/php8-fpm-error.log w,
+  owner /var/log/php8-fpm-error.log w,
+  owner /var/log/php8.log w,
+
+  # --- PHP sessions + nginx TLS ---
+  owner /var/lib/php8/sessions/ r,
+  owner /var/lib/nginx/.rnd rw,
+
+  change_profile -> php-fpm//*,
+}

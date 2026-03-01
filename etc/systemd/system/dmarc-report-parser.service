@@ -1,0 +1,18 @@
+# /etc/systemd/system/dmarc-report-parser.service
+#
+# Parses DMARC aggregate reports from the IMAP mailbox
+# and writes structured JSONL for Grafana Loki.
+#
+# View logs:
+#   journalctl -u dmarc-report-parser -n 50 --no-pager
+
+[Unit]
+Description=DMARC Report Parser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Nice=10
+ExecStart=/usr/bin/php /root/scripts/dmarc/parse-reports.php
+WorkingDirectory=/root/scripts/dmarc

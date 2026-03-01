@@ -1,0 +1,23 @@
+# /etc/crowdsec/parsers/s02-enrich/custom-whitelist.yaml
+#
+# Whitelist for internal IPs and Docker networks.
+# Prevents CrowdSec from blocking internal Mailcow communication
+# or the server itself.
+name: custom/whitelist
+description: "Whitelist: own IPs, loopback, Docker networks"
+whitelist:
+  reason: "internal IP or Docker network"
+  ip:
+    - "127.0.0.1"
+    - "::1"
+    - "203.0.113.1"
+    - "2001:db8::1"
+  cidr:
+    # Docker default bridge
+    - "172.17.0.0/16"
+    # Mailcow bridge (br-mailcow)
+    - "172.22.1.0/24"
+    # Docker IPv6
+    - "fd00:dead:beef::/48"
+    # Mailcow IPv6
+    - "fd4d:6169:6c63:6f77::/64"

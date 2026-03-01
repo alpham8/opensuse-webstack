@@ -1,0 +1,14 @@
+# /etc/nginx/vhosts.d/static-cache.global
+#
+# Cache headers for static assets (CSS, JS, images, fonts).
+# Improves Lighthouse score and reduces traffic.
+# Include via: include vhosts.d/static-cache.global;
+#
+# NOTE: Symfony/Vite assets contain a content hash in the filename,
+# therefore "immutable" is safe — the filename changes when content changes.
+
+location ~* \.(css|js|jpg|jpeg|png|gif|webp|avif|svg|ico|woff|woff2|ttf|eot)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable" always;
+    access_log off;
+}

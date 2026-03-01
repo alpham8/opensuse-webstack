@@ -1,0 +1,9 @@
+[nginx-http-auth]
+backend = auto
+enabled = true
+port = 80,443
+protocol = tcp
+filter = nginx-http-auth
+maxretry = 6
+bantime = 3h
+findtime = 10m

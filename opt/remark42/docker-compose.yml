@@ -1,0 +1,77 @@
+# /opt/remark42/docker-compose.yml
+#
+# Remark42 — self-hosted, GDPR-compliant blog comment system.
+# Available at: https://comments.example.com (via nginx reverse proxy)
+#
+# Installation:
+#   cd /opt/remark42
+#   # Edit .env (generate SECRET with: openssl rand -hex 32)
+#   docker compose up -d
+#
+# Website integration:
+#   Remark42 is loaded via JavaScript on blog detail pages (lazy-load).
+#   See firma-neu/templates/blog/show.html.twig
+#
+# Admin access:
+#   The user configured in ADMIN_SHARED_ID is the admin.
+#   Admin interface: https://comments.example.com/web
+#
+# Data directory:
+#   /opt/remark42/data/ (BoltDB + avatars + images)
+
+services:
+  remark42:
+    image: umputun/remark42:latest
+    container_name: remark42
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:8080"
+    environment:
+      - TZ=Europe/Berlin
+      - REMARK_URL=https://comments.example.com
+      - SECRET=${SECRET}
+      - SITE=example
+      - ADMIN_SHARED_ID=${ADMIN_SHARED_ID}
+      # Anonymous comments allowed (no login required for posting)
+      - AUTH_ANON=true
+      - ANON_VOTE=true
+      # Optional: Email auth (users can register with email)
+      - AUTH_EMAIL_ENABLE=${AUTH_EMAIL_ENABLE:-false}
+      - AUTH_EMAIL_FROM=${AUTH_EMAIL_FROM:-admin@example.com}
+      # SMTP via Mailcow Postfix (Docker-internal, port 465 implicit TLS)
+      # extra_hosts maps mail.example.com to the Postfix container,
+      # so the TLS certificate name (*.example.com) matches.
+      - SMTP_HOST=mail.example.com
+      - SMTP_PORT=465
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_TLS=true
+      # Moderation
+      - NOTIFY_ADMINS=email
+      - NOTIFY_EMAIL_FROM=${NOTIFY_EMAIL_FROM:-admin@example.com}
+      - ADMIN_SHARED_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      # GDPR / Privacy
+      - EMOJI=true
+      - LOW_SCORE=-5
+      - CRITICAL_SCORE=-10
+      - MAX_COMMENT_SIZE=2048
+      - IMAGE_MAX_SIZE=5242880
+      - POSITIVE_SCORE=false
+    volumes:
+      - ./data:/srv/var
+    extra_hosts:
+      - "mail.example.com:172.22.1.253"
+    networks:
+      - default
+      - mailcow
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/ping"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  mailcow:
+    external: true
+    name: mailcowdockerized_mailcow-network

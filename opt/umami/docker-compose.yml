@@ -1,0 +1,55 @@
+# /opt/umami/docker-compose.yml
+#
+# Umami Web Analytics — cookieless, GDPR-compliant, no cookie banner needed.
+# Available at: https://umami.example.com (via nginx reverse proxy)
+#
+# Installation:
+#   cd /opt/umami
+#   # Edit .env (use only URL-safe characters! e.g.: openssl rand -hex 20)
+#   docker compose up -d
+#
+# Default login: admin / umami
+# CHANGE the password IMMEDIATELY after first login!
+#
+# Tracking script integration (on every page to be tracked):
+#   <script defer src="https://umami.example.com/script.js"
+#     data-website-id="WEBSITE_ID_FROM_UMAMI_DASHBOARD"></script>
+
+services:
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: umami
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      DATABASE_URL: postgresql://umami:${POSTGRES_PASSWORD}@umami-db:5432/umami
+    restart: unless-stopped
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/heartbeat || exit 1"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  umami-db:
+    image: postgres:15-alpine
+    container_name: umami-db
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - umami-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  umami-db-data:

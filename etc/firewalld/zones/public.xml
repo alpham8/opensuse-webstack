@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<zone>
+  <short>Public</short>
+  <description>
+    Public zone — for use in untrusted networks.
+    Only selected incoming connections are accepted.
+  </description>
+
+  <!-- SSH on custom port (moved from default 22 to reduce noise) -->
+  <port protocol="tcp" port="2424"/>
+
+  <!-- HTTP and HTTPS for web services -->
+  <port protocol="tcp" port="80"/>
+  <port protocol="tcp" port="443"/>
+
+  <!-- SMTP — inbound mail delivery from other mail servers -->
+  <port protocol="tcp" port="25"/>
+
+  <!-- SMTPS — implicit TLS for mail submission -->
+  <port protocol="tcp" port="465"/>
+
+  <!-- Submission — STARTTLS mail submission from mail clients -->
+  <port protocol="tcp" port="587"/>
+
+  <!-- IMAPS — secure IMAP access for mail clients -->
+  <port protocol="tcp" port="993"/>
+</zone>

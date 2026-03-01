@@ -1,0 +1,33 @@
+# /root/endlessh-go/docker-compose.yml
+#
+# SSH tarpit on port 22 — traps scanners/bots indefinitely.
+# Real SSH runs on port 2424.
+#
+# Installation:
+#   cd /root/endlessh-go
+#   docker compose up -d
+#
+# View logs:
+#   docker compose logs -f
+#
+# Prometheus metrics:
+#   curl http://127.0.0.1:2112/metrics
+
+services:
+  endlessh-go:
+    image: shizunge/endlessh-go:latest
+    container_name: endlessh-go
+    restart: unless-stopped
+    ports:
+      - "22:2222"
+      - "127.0.0.1:2112:2112"
+    command:
+      - -port=2222
+      - -logtostderr
+      - -v=1
+      - -enable_prometheus
+      - -prometheus_port=2112
+      - -geoip_supplier=off
+      - -max_clients=4096
+      - -interval_ms=1000
+      - -line_length=32

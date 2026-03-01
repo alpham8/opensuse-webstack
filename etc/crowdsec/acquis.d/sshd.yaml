@@ -1,0 +1,8 @@
+# /etc/crowdsec/acquis.d/sshd.yaml
+#
+# SSH daemon logs via journald
+source: journalctl
+journalctl_filter:
+  - "_SYSTEMD_UNIT=sshd.service"
+labels:
+  type: syslog

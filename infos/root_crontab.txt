@@ -1,0 +1,4 @@
+# minute    hour    day of month    month    day of the week    command
+0           3       *               *        *                  /usr/local/bin/certbot renew --quiet --deploy-hook "/root/cert-post-renew.sh"
+*/5         *       *               *        *                  sudo -u nginx /usr/bin/php -f /srv/www/vhosts/example.com/sync.example.com/cron.php
+0           4       *               *        *                  /usr/bin/php /root/scripts/backup-all.php

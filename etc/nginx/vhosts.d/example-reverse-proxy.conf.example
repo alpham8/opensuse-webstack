@@ -1,0 +1,53 @@
+# /etc/nginx/vhosts.d/example-reverse-proxy.conf.example
+#
+# Example nginx vhost for reverse-proxying a Docker container (or any
+# backend service) listening on a local port.
+#
+# Prerequisites:
+#   - Wildcard or domain-specific SSL certificate
+#   - Backend application running on 127.0.0.1:<port> (e.g. Docker container)
+
+# --- HTTP to HTTPS redirect ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name analytics.example.com;
+
+    return 301 https://$host$request_uri;
+}
+
+# --- Main HTTPS server block ---
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name analytics.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    # Security headers (HSTS, X-Frame-Options, etc.)
+    include vhosts.d/security-headers.global;
+
+    # Prevent search engines from indexing this subdomain
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
+    # Reverse proxy to the backend application
+    location / {
+        # Change the port to match your backend service
+        proxy_pass http://127.0.0.1:3000;
+
+        # Forward original client information to the backend
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support (remove if not needed)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    error_log /var/log/nginx/analytics_example_com_error.log warn;
+    access_log /var/log/nginx/analytics_example_com_access.log;
+}

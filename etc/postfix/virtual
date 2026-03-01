@@ -1,0 +1,6 @@
+# System mail aliases (local Postfix -> mailcow relay)
+# Cron and other system services send mail to "root", which gets expanded
+# to root@example.com via myorigin. Since example.com is not
+# in mydestination, /etc/aliases does NOT apply -- virtual_alias_maps is
+# needed to rewrite the recipient before relaying to mailcow.
+root@example.com		admin@example.com

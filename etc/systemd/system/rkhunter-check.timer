@@ -1,0 +1,18 @@
+# /etc/systemd/system/rkhunter-check.timer
+#
+# Runs rkhunter daily at 05:30 (after the backup at 04:00).
+#
+# Status:
+#   systemctl list-timers rkhunter-check.timer
+#   systemctl status rkhunter-check.timer
+
+[Unit]
+Description=Daily rkhunter rootkit scan
+
+[Timer]
+OnCalendar=*-*-* 05:30:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

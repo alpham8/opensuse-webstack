@@ -1,0 +1,21 @@
+location = /favicon.ico {
+    log_not_found off;
+    access_log off;
+}
+
+# Deny all attempts to access hidden files such as .htaccess, .htpasswd, .DS_Store (Mac).
+location ~ /\. {
+    deny all;
+    access_log off;
+    log_not_found off;
+}
+
+# Deny all attempts to access possible configuration files
+location ~ \.(tpl|yml|ini|log)$ {
+    deny all;
+}
+
+# Deny access to root files
+location ~ (autoload\.php|composer\.(json|lock|phar)|CONTRIBUTING\.md|eula.*\.txt|license\.txt|README\.md|UPGRADE-(.*)\.md|.*\.dist)$ {
+    return 404;
+}

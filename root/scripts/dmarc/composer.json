@@ -1,0 +1,10 @@
+{
+    "name": "example/dmarc-report-parser",
+    "description": "Parse DMARC aggregate reports from IMAP and write JSONL for Grafana Loki",
+    "type": "project",
+    "require": {
+        "php": ">=8.0",
+        "monolog/monolog": "^3.0",
+        "webklex/php-imap": "^5.0"
+    }
+}

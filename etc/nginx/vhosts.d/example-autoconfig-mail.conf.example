@@ -1,0 +1,54 @@
+# /etc/nginx/vhosts.d/example-autoconfig-mail.conf.example
+#
+# Example nginx vhost for mail client auto-configuration (Thunderbird,
+# Outlook, Apple Mail). Proxies autoconfig/autodiscover requests to
+# Mailcow's built-in autodiscover service.
+#
+# Required DNS records:
+#   autoconfig.example.com    A     203.0.113.1
+#   autoconfig.example.com    AAAA  2001:db8::1
+#   autodiscover.example.com  A     203.0.113.1
+#   autodiscover.example.com  AAAA  2001:db8::1
+#
+# Recommended SRV records (for automatic mail client configuration):
+#   _autodiscover._tcp.example.com   SRV  0 1 443 mail.example.com
+#   _imaps._tcp.example.com          SRV  0 1 993 mail.example.com
+#   _submission._tcp.example.com     SRV  0 1 587 mail.example.com
+#   _submissions._tcp.example.com    SRV  0 1 465 mail.example.com
+
+# --- HTTP to HTTPS redirect ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name autoconfig.example.com autodiscover.example.com;
+
+    return 301 https://$host$request_uri;
+}
+
+# --- Main HTTPS server block ---
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name autoconfig.example.com autodiscover.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    server_tokens off;
+
+    include vhosts.d/security-headers.global;
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
+    # Forward all requests to Mailcow's internal HTTP service
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    error_log /var/log/nginx/autoconfig_error.log warn;
+    access_log /var/log/nginx/autoconfig_access.log;
+}

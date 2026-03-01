@@ -1,0 +1,335 @@
+// /etc/alloy/config.alloy
+//
+// Grafana Alloy configuration for Hetzner Dedicated Server
+// Workspace: myorg.grafana.net
+//
+// Collects:
+//   - Alloy Self-Monitoring
+//   - System metrics (built-in node_exporter)
+//   - endlessh-go SSH tarpit metrics
+//   - Systemd Journal Logs
+//   - System log files (/var/log/)
+//   - nginx access/error logs (per vHost, for web analytics in Grafana)
+//   - DMARC Aggregate Reports (JSONL, parsed from IMAP)
+
+// =====================================================================
+// Prometheus Remote Write — Metrics to Grafana Cloud
+// =====================================================================
+prometheus.remote_write "metrics_service" {
+  endpoint {
+    url = "https://prometheus-prod-65-prod-eu-west-2.grafana.net/api/prom/push"
+
+    basic_auth {
+      username = "123456"
+      password = "changeme"
+    }
+  }
+}
+
+// =====================================================================
+// Loki — Logs to Grafana Cloud
+// =====================================================================
+loki.write "grafana_cloud_loki" {
+  endpoint {
+    url = "https://logs-prod-012.grafana.net/loki/api/v1/push"
+
+    basic_auth {
+      username = "123456"
+      password = "changeme"
+    }
+  }
+}
+
+// =====================================================================
+// 1. Alloy Self-Monitoring
+// =====================================================================
+prometheus.exporter.self "alloy_check" { }
+
+discovery.relabel "alloy_check" {
+  targets = prometheus.exporter.self.alloy_check.targets
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "alloy_hostname"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "integrations/alloy-check"
+  }
+}
+
+prometheus.scrape "alloy_check" {
+  targets         = discovery.relabel.alloy_check.output
+  forward_to      = [prometheus.relabel.alloy_check.receiver]
+  scrape_interval = "60s"
+}
+
+prometheus.relabel "alloy_check" {
+  forward_to = [prometheus.remote_write.metrics_service.receiver]
+
+  rule {
+    source_labels = ["__name__"]
+    regex         = "(prometheus_target_sync_length_seconds_sum|prometheus_target_scrapes_.*|prometheus_target_interval.*|prometheus_sd_discovered_targets|alloy_build.*|prometheus_remote_write_wal_samples_appended_total|process_start_time_seconds)"
+    action        = "keep"
+  }
+}
+
+// =====================================================================
+// 2. System metrics (built-in node_exporter — no external package needed)
+// =====================================================================
+prometheus.exporter.unix "integrations_node_exporter" {
+  disable_collectors = ["ipvs", "btrfs", "infiniband", "xfs", "zfs"]
+
+  filesystem {
+    fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|tmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+    mount_points_exclude = "^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+)($|/)"
+    mount_timeout        = "5s"
+  }
+
+  netclass {
+    ignored_devices = "^(veth.*|cali.*|[a-f0-9]{15})$"
+  }
+
+  netdev {
+    device_exclude = "^(veth.*|cali.*|[a-f0-9]{15})$"
+  }
+}
+
+discovery.relabel "integrations_node_exporter" {
+  targets = prometheus.exporter.unix.integrations_node_exporter.targets
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "integrations/node_exporter"
+  }
+}
+
+prometheus.scrape "integrations_node_exporter" {
+  targets         = discovery.relabel.integrations_node_exporter.output
+  forward_to      = [prometheus.relabel.integrations_node_exporter.receiver]
+  scrape_interval = "60s"
+}
+
+prometheus.relabel "integrations_node_exporter" {
+  forward_to = [prometheus.remote_write.metrics_service.receiver]
+
+  rule {
+    source_labels = ["__name__"]
+    regex         = "node_scrape_collector_.+"
+    action        = "drop"
+  }
+}
+
+// =====================================================================
+// 3. endlessh-go metrics (SSH tarpit on port 22)
+// =====================================================================
+prometheus.scrape "endlessh" {
+  targets = [{
+    __address__ = "127.0.0.1:2112",
+  }]
+  forward_to      = [prometheus.remote_write.metrics_service.receiver]
+  scrape_interval = "60s"
+  job_name        = "endlessh"
+}
+
+// =====================================================================
+// 4. Systemd Journal Logs
+// =====================================================================
+loki.source.journal "logs_integrations_integrations_node_exporter_journal_scrape" {
+  max_age       = "24h0m0s"
+  relabel_rules = discovery.relabel.logs_integrations_integrations_node_exporter_journal_scrape.rules
+  forward_to    = [loki.write.grafana_cloud_loki.receiver]
+}
+
+discovery.relabel "logs_integrations_integrations_node_exporter_journal_scrape" {
+  targets = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["__journal__boot_id"]
+    target_label  = "boot_id"
+  }
+
+  rule {
+    source_labels = ["__journal__transport"]
+    target_label  = "transport"
+  }
+
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+}
+
+// =====================================================================
+// 5. System log files (/var/log/)
+// =====================================================================
+local.file_match "logs_integrations_integrations_node_exporter_direct_scrape" {
+  path_targets = [{
+    __address__ = "localhost",
+    __path__    = "/var/log/{syslog,messages,*.log}",
+    instance    = constants.hostname,
+    job         = "integrations/node_exporter",
+  }]
+}
+
+loki.source.file "logs_integrations_integrations_node_exporter_direct_scrape" {
+  targets    = local.file_match.logs_integrations_integrations_node_exporter_direct_scrape.targets
+  forward_to = [loki.write.grafana_cloud_loki.receiver]
+}
+
+// =====================================================================
+// 6. rkhunter rootkit scanner log
+// =====================================================================
+local.file_match "rkhunter" {
+  path_targets = [{
+    __address__ = "localhost",
+    __path__    = "/var/log/rkhunter.log",
+    instance    = constants.hostname,
+    job         = "rkhunter",
+  }]
+}
+
+loki.source.file "rkhunter" {
+  targets    = local.file_match.rkhunter.targets
+  forward_to = [loki.process.rkhunter.receiver]
+}
+
+loki.process "rkhunter" {
+  forward_to = [loki.write.grafana_cloud_loki.receiver]
+
+  // Label warnings as "warn", everything else as "info"
+  stage.regex {
+    expression = "^.*(?P<level>Warning|warning|WARNING).*$"
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  stage.static_labels {
+    values = {
+      component = "rkhunter",
+    }
+  }
+}
+
+// =====================================================================
+// 8. nginx access logs (per vHost) — for web analytics in Grafana
+// =====================================================================
+local.file_match "nginx_access" {
+  path_targets = [{
+    __address__ = "localhost",
+    __path__    = "/var/log/nginx/*_access.log",
+    instance    = constants.hostname,
+    job         = "nginx-access",
+  }]
+}
+
+loki.source.file "nginx_access" {
+  targets    = local.file_match.nginx_access.targets
+  forward_to = [loki.process.nginx_access.receiver]
+}
+
+loki.process "nginx_access" {
+  forward_to = [loki.write.grafana_cloud_loki.receiver]
+
+  // Parse nginx combined log format
+  stage.regex {
+    expression = "^(?P<remote_addr>[\\w\\.:-]+) - (?P<remote_user>\\S+) \\[(?P<time_local>[^\\]]+)\\] \"(?P<method>\\S+) (?P<path>\\S+) (?P<protocol>[^\"]+)\" (?P<status>\\d+) (?P<body_bytes_sent>\\d+) \"(?P<http_referer>[^\"]*)\" \"(?P<http_user_agent>[^\"]*)\""
+  }
+
+  stage.labels {
+    values = {
+      method = "",
+      status = "",
+    }
+  }
+
+  stage.static_labels {
+    values = {
+      component = "nginx",
+    }
+  }
+}
+
+// =====================================================================
+// 9. nginx error logs
+// =====================================================================
+local.file_match "nginx_error" {
+  path_targets = [{
+    __address__ = "localhost",
+    __path__    = "/var/log/nginx/*_error.log",
+    instance    = constants.hostname,
+    job         = "nginx-error",
+  }]
+}
+
+loki.source.file "nginx_error" {
+  targets    = local.file_match.nginx_error.targets
+  forward_to = [loki.write.grafana_cloud_loki.receiver]
+}
+
+// =====================================================================
+// 10. DMARC Aggregate Reports (JSONL from IMAP parser)
+// =====================================================================
+local.file_match "dmarc" {
+  path_targets = [{
+    __address__ = "localhost",
+    __path__    = "/var/log/dmarc/reports.jsonl",
+    instance    = constants.hostname,
+    job         = "dmarc-reports",
+  }]
+}
+
+loki.source.file "dmarc" {
+  targets    = local.file_match.dmarc.targets
+  forward_to = [loki.process.dmarc.receiver]
+}
+
+loki.process "dmarc" {
+  forward_to = [loki.write.grafana_cloud_loki.receiver]
+
+  stage.json {
+    expressions = {
+      org_name    = "org_name",
+      domain      = "domain",
+      disposition = "disposition",
+      dkim_align  = "dkim_align",
+      spf_align   = "spf_align",
+    }
+  }
+
+  stage.labels {
+    values = {
+      org_name    = "",
+      domain      = "",
+      disposition = "",
+      dkim_align  = "",
+      spf_align   = "",
+    }
+  }
+
+  stage.static_labels {
+    values = {
+      component = "dmarc",
+    }
+  }
+}

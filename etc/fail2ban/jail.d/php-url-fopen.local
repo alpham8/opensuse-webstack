@@ -1,0 +1,7 @@
+[php-url-fopen]
+backend = auto
+enabled = true
+port = 80,443
+filter = php-url-fopen
+maxretry = 1
+bantime = 24h

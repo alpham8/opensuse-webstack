@@ -1,0 +1,18 @@
+# /etc/systemd/system/dmarc-report-parser.timer
+#
+# Runs the DMARC report parser daily at 06:00.
+#
+# Status:
+#   systemctl list-timers dmarc-report-parser.timer
+#   systemctl status dmarc-report-parser.timer
+
+[Unit]
+Description=DMARC Report Parser (daily)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

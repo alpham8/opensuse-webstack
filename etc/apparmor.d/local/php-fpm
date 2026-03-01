@@ -1,0 +1,7 @@
+# /etc/apparmor.d/local/php-fpm
+# Site-specific additions to the php-fpm profile.
+# Additional rules can be added here without
+# modifying the main profile.
+#
+# Example:
+#   owner /srv/www/vhosts/example.com/** rw,

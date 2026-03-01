@@ -1,0 +1,47 @@
+# /etc/nginx/vhosts.d/example-remark42.conf.example
+#
+# Example nginx vhost for Remark42 comment engine running in Docker.
+# Remark42 is embedded as an iframe on the main site, so X-Frame-Options
+# must be relaxed and Content-Security-Policy must allow framing.
+#
+# Prerequisites:
+#   - Wildcard or domain-specific SSL certificate
+#   - Remark42 running on 127.0.0.1:8082 (Docker container)
+
+# --- HTTP to HTTPS redirect ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name comments.example.com;
+
+    return 301 https://$host$request_uri;
+}
+
+# --- Main HTTPS server block ---
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name comments.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    include vhosts.d/security-headers.global;
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
+    # Allow embedding as iframe on your main site (required for Remark42)
+    add_header X-Frame-Options "" always;
+    add_header Content-Security-Policy "frame-ancestors 'self' https://www.example.com https://example.com" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:8082;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    error_log /var/log/nginx/comments_error.log warn;
+    access_log /var/log/nginx/comments_access.log;
+}

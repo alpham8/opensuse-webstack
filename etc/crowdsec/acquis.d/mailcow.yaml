@@ -1,0 +1,30 @@
+# /etc/crowdsec/acquis.d/mailcow.yaml
+#
+# Mailcow container logs via Docker API.
+# Container names are matched by regex so it works regardless
+# of the docker-compose project name.
+#
+# IMPORTANT: Own IPs and Docker networks must be whitelisted
+# to prevent blocking internal Mailcow communication.
+# See: /etc/crowdsec/parsers/s02-enrich/custom-whitelist.yaml
+
+# Postfix (SMTP)
+source: docker
+container_name_regexp:
+  - ".*postfix-mailcow.*"
+labels:
+  type: syslog
+---
+# Dovecot (IMAP/POP3)
+source: docker
+container_name_regexp:
+  - ".*dovecot-mailcow.*"
+labels:
+  type: syslog
+---
+# Mailcow Nginx (Webmail / Autodiscover)
+source: docker
+container_name_regexp:
+  - ".*nginx-mailcow.*"
+labels:
+  type: nginx
