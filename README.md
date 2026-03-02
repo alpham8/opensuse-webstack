@@ -358,6 +358,240 @@ alloy fmt /etc/alloy/config.alloy      # Check formatting
 systemctl reload alloy                 # Reload without restart
 ```
 
+## Troubleshooting
+
+### Website not reachable
+
+**1. Check if nginx is running**
+```bash
+systemctl status nginx
+```
+If inactive:
+```bash
+nginx -t                    # Check config syntax
+systemctl start nginx       # Start (fails if config has errors)
+journalctl -u nginx --since '10 min ago' --no-pager  # Error messages
+```
+Common cause: syntax error in a vhost file. `nginx -t` shows the offending file.
+
+**2. Check if PHP-FPM is running** (for PHP-based sites)
+```bash
+systemctl status php-fpm
+systemctl start php-fpm     # If inactive
+journalctl -u php-fpm --since '10 min ago' --no-pager
+```
+
+**3. Check if your own IP got banned**
+```bash
+# CrowdSec (most common cause!)
+cscli decisions list --ip YOUR_IP
+
+# Unban
+cscli decisions delete --ip YOUR_IP
+
+# fail2ban
+fail2ban-client status sshd
+fail2ban-client set sshd unbanip YOUR_IP
+```
+Tip: Add your own IP to the CrowdSec whitelist (`etc/crowdsec/parsers/s02-enrich/custom-whitelist.yaml`).
+
+**4. DNS / certificate check**
+```bash
+# From outside (local machine):
+curl -vI https://example.com 2>&1 | grep -E 'SSL|HTTP/'
+
+# On the server:
+certbot certificates    # Check expiry dates
+```
+
+### SSH connection fails
+
+**1. Use the correct port**
+```bash
+ssh -p 2424 root@203.0.113.1
+```
+Port 22 runs the endlessh tarpit — connections will hang indefinitely by design.
+
+**2. Your IP got banned?**
+
+If SSH connections time out (not "connection refused"):
+- Log into your hosting provider's **remote console (KVM/VNC)**
+- Check and unban your IP:
+```bash
+cscli decisions list --ip YOUR_IP
+cscli decisions delete --ip YOUR_IP
+fail2ban-client set sshd unbanip YOUR_IP
+```
+
+**3. Server not responding at all**
+
+- Use your hosting provider's **remote console (KVM/VNC)**
+- If unresponsive: try a **software reset** (Ctrl+Alt+Del)
+- Last resort: **hardware reset**
+- After reboot, connect via SSH and run the health check
+
+### Docker containers crashed (Mailcow, Umami, Remark42, endlessh)
+
+```bash
+# Which containers are not running?
+docker ps -a --filter 'status=exited' --filter 'status=dead'
+
+# Restart via systemd (preferred):
+systemctl restart compose-mailcow     # Mailcow
+systemctl restart compose-umami       # Umami
+systemctl restart compose-remark42    # Remark42
+systemctl restart compose-endlessh    # endlessh-go
+
+# Check logs of the problematic container:
+cd /root/mailcow-dockerized && docker compose logs --tail=50 CONTAINER_NAME
+cd /opt/umami && docker compose logs --tail=50
+cd /opt/remark42 && docker compose logs --tail=50
+```
+
+### Disk full
+
+```bash
+# Check disk usage
+df -h /
+
+# Find largest consumers
+du -sh /root/backup/ /var/log/ /srv/www/
+
+# Delete old backups (older than 3 days)
+ls -lht /root/backup/
+rm /root/backup/*_OLD_DATE*
+
+# Clean up Docker (unused images, volumes, build cache)
+docker system prune -af
+docker volume prune -f
+
+# Clean up old logs
+journalctl --vacuum-time=3d
+```
+Warning: `/root/backup/` is the most common culprit. The automated backup script only deletes backups older than 3 days.
+
+### RAM full / server very slow
+
+```bash
+# RAM usage
+free -h
+
+# Top consumers
+ps aux --sort=-%mem | head -15
+
+# Check for OOM kills
+dmesg | grep -i "out of memory"
+journalctl --since '1 hour ago' | grep -i "oom\|killed process"
+```
+Common cause: Nextcloud cron or PHP-FPM pools consuming too much memory. Emergency measure:
+```bash
+# Restart PHP-FPM (frees RAM)
+systemctl restart php-fpm
+
+# Or temporarily stop non-essential Docker Compose stacks
+systemctl stop compose-umami       # saves RAM
+systemctl stop compose-remark42    # saves RAM
+```
+
+### Database problems (MariaDB)
+
+```bash
+systemctl status mariadb
+journalctl -u mariadb --since '10 min ago' --no-pager
+
+# If mariadb won't start:
+systemctl start mariadb
+
+# Check tables (if corruption is suspected after a crash)
+mysqlcheck --all-databases --check
+mysqlcheck --all-databases --auto-repair   # Only if actual errors found!
+```
+
+### Mail delivery not working
+
+```bash
+# Postfix (system mails: cron, fail2ban, etc.)
+systemctl status postfix
+mailq                          # Check mail queue
+postqueue -f                   # Flush (retry) the queue
+
+# Mailcow (actual email)
+cd /root/mailcow-dockerized
+docker compose ps              # All containers must show "Up"
+docker compose logs --tail=30 postfix-mailcow
+docker compose logs --tail=30 dovecot-mailcow
+
+# If individual Mailcow containers won't start:
+docker compose up -d           # Start missing containers
+```
+
+### SSL certificate expired
+
+```bash
+# Check status
+certbot certificates
+
+# Manually renew
+certbot renew
+
+# Run deploy-hook manually (distribute certs to nginx, Mailcow, RabbitMQ)
+/root/cert-post-renew.sh
+
+# Reload nginx
+systemctl reload nginx
+```
+
+### CrowdSec / fail2ban not working
+
+```bash
+# CrowdSec
+systemctl status crowdsec
+systemctl status crowdsec-firewall-bouncer
+journalctl -u crowdsec --since '10 min ago' --no-pager
+
+# Restart if problems persist
+systemctl restart crowdsec
+systemctl restart crowdsec-firewall-bouncer
+
+# fail2ban
+systemctl status fail2ban
+journalctl -u fail2ban --since '10 min ago' --no-pager
+
+# IMPORTANT: After a firewalld restart, fail2ban must also be restarted!
+systemctl restart firewalld && systemctl restart fail2ban
+```
+
+### After a server reboot
+
+After a planned or unplanned reboot, check in this order:
+
+```bash
+# 1. Failed services?
+systemctl --failed
+
+# 2. Docker Compose services
+systemctl status compose-mailcow compose-endlessh compose-umami compose-remark42
+
+# 3. Core services
+systemctl is-active nginx php-fpm mariadb docker postfix crowdsec alloy
+
+# 4. RAID status (important after unplanned reboots!)
+cat /proc/mdstat
+
+# 5. Run the full health check
+```
+
+The systemd units start Docker containers automatically in the correct order (docker -> mailcow -> rest in parallel). If a service fails, start it individually with `systemctl start SERVICE_NAME` and check logs.
+
+### Emergency: Server unreachable and SSH does not work
+
+1. Log into your hosting provider's **management panel**
+2. Use the **remote console (KVM/VNC)** to log in directly
+3. If the console is unresponsive: try a **software reset** (Ctrl+Alt+Del)
+4. If still unresponsive: **hardware reset** (last resort)
+5. After reboot, connect via SSH and run the health check
+6. For hardware defects: contact your hosting provider's support
+
 ## RabbitMQ
 
 - AMQP and AMQPS bound to localhost only

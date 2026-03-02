@@ -8,13 +8,18 @@
 
 [ -z "$BASH_VERSION" ] && return
 [[ $- != *i* ]] && return
+[ ! -t 1 ] && return   # no terminal (SFTP, SCP, rsync) — skip output
 
 __login_security() {
     local since label log failed ips top_line top_n top_ip cs f2b
 
+    # Timeout for all external calls (seconds).
+    # Prevents a hanging daemon from blocking SSH login.
+    local T=2
+
     # Determine previous successful login
     local accepted
-    accepted=$(journalctl -u sshd --since "30 days ago" -q --no-pager -o short-iso 2>/dev/null \
+    accepted=$(timeout "$T" journalctl -u sshd --since "30 days ago" -q --no-pager -o short-iso 2>/dev/null \
         | grep -E "Accepted (publickey|password)")
 
     if [ "$(printf '%s' "$accepted" | grep -c .)" -ge 2 ]; then
@@ -26,7 +31,7 @@ __login_security() {
     fi
 
     # Failed SSH attempts
-    log=$(journalctl -u sshd --since "$since" -q --no-pager -o cat 2>/dev/null \
+    log=$(timeout "$T" journalctl -u sshd --since "$since" -q --no-pager -o cat 2>/dev/null \
         | grep -E "Failed password|Invalid user")
 
     if [ -n "$log" ]; then
@@ -40,8 +45,8 @@ __login_security() {
     fi
 
     # Active bans (only real bans, no whitelists)
-    cs=$(cscli decisions list -o raw 2>/dev/null | awk -F, 'NR>1 && $5=="ban"' | wc -l)
-    f2b=$(fail2ban-client status sshd 2>/dev/null | awk '/Currently banned/{print $NF}')
+    cs=$(timeout "$T" cscli decisions list -o raw 2>/dev/null | awk -F, 'NR>1 && $5=="ban"' | wc -l)
+    f2b=$(timeout "$T" fail2ban-client status sshd 2>/dev/null | awk '/Currently banned/{print $NF}')
 
     printf '\n\e[0;90m── Security (%s) ──\e[0m\n' "$label"
     printf '  Failed SSH logins:           \e[1;33m%d\e[0m' "$failed"

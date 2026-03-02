@@ -116,7 +116,7 @@ PrintLastLog yes
 #Banner none
 
 # override default of no subsystems
-Subsystem	sftp	/usr/lib/ssh/sftp-server
+Subsystem	sftp	/usr/libexec/ssh/sftp-server
 
 # This enables accepting locale enviroment variables LC_* LANG, see sshd_config(5).
 AcceptEnv LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES

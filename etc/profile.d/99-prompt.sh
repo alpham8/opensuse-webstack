@@ -7,6 +7,7 @@
 #   example:~ > 04:30:25 $                 (user, normal)
 
 [ -z "$BASH_VERSION" ] && return
+[ ! -t 1 ] && return   # no terminal (SFTP, SCP, rsync) — skip output
 
 __build_prompt() {
     local ec=$?
