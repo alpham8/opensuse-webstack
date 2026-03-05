@@ -1,0 +1,8 @@
+# Local overrides (keep changes out of jail.conf)
+#
+# Use nftables for banning (instead of firewalld/ipset).
+# This avoids ipset dependencies and works cleanly with the host nft ruleset.
+
+[DEFAULT]
+banaction = nftables-multiport
+banaction_allports = nftables-allports

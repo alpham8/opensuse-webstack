@@ -233,7 +233,7 @@ docker compose restart nginx-mailcow dovecot-mailcow postfix-mailcow
 
 
 # ==========================================================================
-# 6. SECURITY: endlessh-go + CrowdSec + rkhunter timer
+# 6. SECURITY: endlessh-go + CrowdSec + rkhunter-Timer + fast ban unknown mail boxes / mail domains
 # ==========================================================================
 
 # --- endlessh-go (SSH tarpit on port 22) ---
@@ -242,6 +242,7 @@ docker compose restart nginx-mailcow dovecot-mailcow postfix-mailcow
 #   etc/systemd/system/compose-endlessh.service -> /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now compose-endlessh
+systemctl enable --now mailcow-fastban-unknown-mailbox
 
 # --- CrowdSec + nftables bouncer ---
 curl -s https://install.crowdsec.net | bash

@@ -1,0 +1,13 @@
+[Unit]
+Description=Mailcow fast-ban for unknown mailbox logins
+Requires=docker.service compose-mailcow.service
+After=docker.service compose-mailcow.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/mailcow-fastban-unknown-mailbox.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
