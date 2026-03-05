@@ -55,7 +55,7 @@ systemctl enable --now firewalld
 
 # Firewall rules: services + ports
 firewall-cmd --permanent --set-target=DROP --zone=public
-firewall-cmd --permanent --add-service={http,https,ssh,imap,imaps,smtp,pop3,pop3s}
+firewall-cmd --permanent --add-service={http,https,ssh,imap,imaps,smtp}
 firewall-cmd --permanent --add-port=2424/tcp     # SSH (actual port)
 firewall-cmd --permanent --add-port=465/tcp      # SMTPS (Mailcow)
 firewall-cmd --permanent --add-port=587/tcp      # Submission (Mailcow)
@@ -92,18 +92,26 @@ systemctl enable --now postfix
 usermod -a -G docker root
 # Copy /etc/docker/daemon.json from repo (log-level: warn, json-file with rotation, SELinux)
 systemctl enable --now docker
-# Docker zone: enable forwarding + masquerade.
-# Forwarding: conntrack fix for SMTP, br-mailcow etc.
-# Masquerade: NAT for outgoing container traffic (DNS, updates, etc.)
+# Docker zone: enable forwarding.
+# Mailcow egress NAT is handled by nftables-mailcow-net.service (targeted: iif br-mailcow -> oif eno1),
+# so real client IPs are preserved for incoming SMTP/IMAP.
 # Docker manages the zone assignment of its bridge interfaces itself.
 firewall-cmd --permanent --zone=docker --add-forward
-firewall-cmd --permanent --zone=docker --add-masquerade
+firewall-cmd --permanent --zone=docker --remove-masquerade || true
 firewall-cmd --reload
 
 # Docker restart drop-in: restart Docker after firewalld restart,
 # so Docker re-creates its network rules (port mappings, NAT).
 #   etc/systemd/system/firewalld.service.d/restart-docker.conf -> /etc/systemd/system/firewalld.service.d/
 systemctl daemon-reload
+
+# nftables: Mailcow DNAT + restricted egress NAT (preserve real client IPs)
+# Copy from repo:
+#   etc/systemd/system/nftables-mailcow-net.service -> /etc/systemd/system/nftables-mailcow-net.service
+#   usr/local/sbin/nft-mailcow-net.sh               -> /usr/local/sbin/nft-mailcow-net.sh
+chmod 0750 /usr/local/sbin/nft-mailcow-net.sh
+systemctl daemon-reload
+systemctl enable --now nftables-mailcow-net.service
 
 # MariaDB
 systemctl enable --now mariadb
@@ -214,6 +222,9 @@ systemctl daemon-reload
 systemctl enable compose-mailcow
 # Start containers and mark service as "active":
 systemctl start compose-mailcow
+
+# Postfix master.cf override (rate limit on 465/587) for Mailcow:
+#   root/mailcow-dockerized/data/conf/postfix/master.cf -> /root/mailcow-dockerized/data/conf/postfix/master.cf
 
 # Provide certificates for Mailcow:
 cp /etc/letsencrypt/live/example.com/fullchain.pem /root/mailcow-dockerized/data/assets/ssl/cert.pem

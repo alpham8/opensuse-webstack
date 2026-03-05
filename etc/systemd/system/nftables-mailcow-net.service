@@ -1,0 +1,12 @@
+[Unit]
+Description=Mailcow DNAT + restricted egress NAT (preserve real client IPs)
+After=firewalld.service docker.service
+Wants=firewalld.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/nft-mailcow-net.sh
+
+[Install]
+WantedBy=multi-user.target

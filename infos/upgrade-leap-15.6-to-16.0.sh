@@ -470,12 +470,17 @@ systemctl start auditd
 # PHASE 8: DOCKER + FIREWALL FIXES
 # ==========================================================================
 
-# --- 8.1 Docker zone: Enable masquerade ---
-# EXPERIENCE: Without masquerade in the Docker zone, containers cannot
-# reach the internet (no NAT). Symptom: Unbound container unhealthy,
-# DNS resolution in containers fails.
-firewall-cmd --permanent --zone=docker --add-masquerade
+# --- 8.1 Docker zone: Disable broad masquerade + enable targeted Mailcow NAT ---
+# EXPERIENCE: Broad masquerade on Docker/firewalld can hide real client IPs (everything looks like 172.22.1.1).
+# We use a targeted nftables rule for Mailcow egress only: iif br-mailcow -> oif eno1 masquerade.
+# Copy from repo first:
+#   etc/systemd/system/nftables-mailcow-net.service -> /etc/systemd/system/nftables-mailcow-net.service
+#   usr/local/sbin/nft-mailcow-net.sh               -> /usr/local/sbin/nft-mailcow-net.sh
+firewall-cmd --permanent --zone=docker --remove-masquerade || true
 firewall-cmd --reload
+chmod 0750 /usr/local/sbin/nft-mailcow-net.sh
+systemctl daemon-reload
+systemctl enable --now nftables-mailcow-net.service
 
 # --- 8.2 Systemd drop-ins: Fix boot race condition ---
 # EXPERIENCE: Three problems during boot after the upgrade:

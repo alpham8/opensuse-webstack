@@ -210,7 +210,7 @@ sshd -t  # Check syntax!
 ### Docker + firewalld
 - `docker-compose` is replaced by `docker compose` (plugin)
 - **Three problems after the upgrade:**
-  1. Masquerade missing in Docker zone → containers have no internet access
+  1. Container egress NAT misconfigured → containers have no internet access
   2. Boot race: Docker starts before firewalld → first start fails
   3. `firewall-cmd --reload` destroys Docker's dynamic NAT rules
 - Solutions: see section "Created Systemd Drop-Ins" below
@@ -265,7 +265,7 @@ ln -sf /opt/certbot/venv/bin/certbot /usr/local/bin/certbot
    - Verify SSH
    - Set up third-party repos for 16.0
    - Service-specific adjustments (nginx, PHP, Postfix, RabbitMQ)
-   - Docker zone: Enable Masquerade
+   - Docker/firewalld: disable broad masquerade + enable nftables-mailcow-net
    - Systemd drop-ins: Boot race condition (Docker, firewalld, CrowdSec)
    - Recompile pecl extensions (amqp manually due to config.sub!)
    - Recreate certbot venv (Python 3.13)
@@ -347,7 +347,7 @@ After the successful boot, numerous services needed to be repaired:
 
 **Docker + Firewall:**
 - Containers could not reach the internet (Unbound unhealthy).
-  Cause: **Masquerade was missing in the Docker zone**.
+  Cause: **Container egress NAT was misconfigured** (and broad masquerade can also hide real client IPs).
 - Docker did not start reliably at boot: **Boot race condition** —
   Docker starts before firewalld, nftables chains do not exist yet.
 - `firewall-cmd --reload` destroys Docker's dynamic NAT rules.
@@ -391,7 +391,7 @@ After the successful boot, numerous services needed to be repaired:
 | Server "offline" despite network | firewalld DROP blocks ICMP | This is correct; only ping is not possible |
 | opensuse-migration-tool fails | dialog requires TTY | Perform steps manually |
 | wicked2nm not available | No package in 15.6 | Create NM config manually |
-| Docker no internet | Masquerade missing in Docker zone | `firewall-cmd --zone=docker --add-masquerade` |
+| Docker no internet | Container egress NAT misconfigured | `systemctl enable --now nftables-mailcow-net` |
 | Docker boot race | Starts before firewalld | `ExecStartPre` waits for `firewall-cmd --state` |
 | firewall reload kills Docker NAT | Chains are rebuilt | firewalld drop-in restarts Docker on reload |
 | CrowdSec inactive after boot | `Requires=docker.service` | `Wants=docker.service` |
@@ -448,7 +448,7 @@ Before the reboot:
 After the reboot:
 - [ ] SSH reachable
 - [ ] Network: IPv4 + IPv6 + DNS
-- [ ] firewalld: Docker zone Masquerade active
+- [ ] nftables-mailcow-net: enabled and active
 - [ ] Systemd drop-ins deployed (firewalld, docker, crowdsec)
 - [ ] Docker containers start and have internet access
 - [ ] RabbitMQ: NODENAME, /etc/hosts, possibly Mnesia reset

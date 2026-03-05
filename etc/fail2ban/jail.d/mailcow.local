@@ -1,0 +1,8 @@
+# Mail services (Mailcow): POP3/POP3S disabled on this setup.
+# Keep the port lists aligned with the firewall exposure.
+
+[dovecot]
+port = imap,imaps,submission,465,sieve
+
+[postfix-sasl]
+port = smtp,465,submission,imap,imaps

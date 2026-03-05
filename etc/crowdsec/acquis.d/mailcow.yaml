@@ -15,7 +15,7 @@ container_name_regexp:
 labels:
   type: syslog
 ---
-# Dovecot (IMAP/POP3)
+# Dovecot (IMAP; POP3 optional)
 source: docker
 container_name_regexp:
   - ".*dovecot-mailcow.*"
