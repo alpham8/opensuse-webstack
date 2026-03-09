@@ -21,3 +21,5 @@ whitelist:
     - "fd00:dead:beef::/48"
     # Mailcow IPv6
     - "fd4d:6169:6c63:6f77::/64"
+    # Home LAN: add your ISP's dynamic IP ranges here if you get locked out
+    # - "198.51.100.0/16"

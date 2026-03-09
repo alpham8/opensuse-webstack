@@ -100,10 +100,17 @@ firewall-cmd --permanent --zone=docker --add-forward
 firewall-cmd --permanent --zone=docker --remove-masquerade || true
 firewall-cmd --reload
 
-# Docker restart drop-in: restart Docker after firewalld restart,
-# so Docker re-creates its network rules (port mappings, NAT).
+# Docker + nftables reload drop-in:
+# After firewalld start/reload, both Docker AND nftables-mailcow-net are restarted.
+# Docker needs the restart to re-create its NAT rules (port mappings).
+# nftables-mailcow-net needs the restart because FlushAllOnReload=yes in firewalld
+# flushes ALL nftables tables — including our custom mailcow_net/mailcow_net6 DNAT tables.
 #   etc/systemd/system/firewalld.service.d/restart-docker.conf -> /etc/systemd/system/firewalld.service.d/
 systemctl daemon-reload
+
+# Load ip6table_filter kernel module at boot (Mailcow netfilter container requires it):
+#   etc/modules-load.d/ip6table_filter.conf -> /etc/modules-load.d/ip6table_filter.conf
+modprobe ip6table_filter
 
 # nftables: Mailcow DNAT + restricted egress NAT (preserve real client IPs)
 # Copy from repo:
@@ -233,8 +240,28 @@ docker compose restart nginx-mailcow dovecot-mailcow postfix-mailcow
 
 
 # ==========================================================================
-# 6. SECURITY: endlessh-go + CrowdSec + rkhunter-Timer + fast ban unknown mail boxes / mail domains
+# 6. SECURITY: AppArmor + endlessh-go + CrowdSec + rkhunter-Timer + fast ban unknown mail boxes / mail domains
 # ==========================================================================
+
+# --- AppArmor (Mandatory Access Control) ---
+# Leap 16.0 boots with SELinux by default. We want AppArmor instead.
+zypper -n in --no-recommends apparmor-parser apparmor-profiles apparmor-abstractions apparmor-utils
+
+# Switch boot parameters from SELinux to AppArmor:
+sed -i 's/security=selinux selinux=1/security=apparmor apparmor=1/' /etc/default/grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+# Copy custom php-fpm profile from repo:
+#   etc/apparmor.d/php-fpm       -> /etc/apparmor.d/php-fpm
+#   etc/apparmor.d/local/php-fpm -> /etc/apparmor.d/local/php-fpm
+# If the package created an .rpmnew file (our custom profile was already in place):
+rm -f /etc/apparmor.d/php-fpm.rpmnew
+
+# NOTE: A reboot is required after installation so the kernel
+# starts with security=apparmor. Only then will these work:
+#   systemctl enable --now apparmor
+#   aa-status                    # Shows loaded profiles
+#   aa-enforce /etc/apparmor.d/php-fpm
 
 # --- endlessh-go (SSH tarpit on port 22) ---
 # Docker Compose from repo: root/endlessh-go/docker-compose.yml -> /root/endlessh-go/
