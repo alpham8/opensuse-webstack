@@ -52,6 +52,8 @@ class BackupRunner
     private const STORAGEBOX_PORT = 23;
     private const STORAGEBOX_DIR  = '/home/backup';
 
+    private const COMPRESS_PROGRAM = 'pigz -1';
+
     /** @var Logger */
     private Logger $log;
 
@@ -121,6 +123,7 @@ class BackupRunner
         // Step 1: Delete old static backups
         $this->log->info('Deleting old static backups');
         $this->exec('cleanup', 'find /root/backup -maxdepth 1 -type f -name "*-backup_*.tar.gz" -delete');
+        $this->exec('cleanup', 'find /root/backup -maxdepth 1 -type f -name "nc-db-backup_*.sql.gz" -delete');
 
         // Step 2: Fork parallel tasks
         $tasks = $this->getTaskDefinitions();
@@ -134,15 +137,48 @@ class BackupRunner
             }
         }
 
-        // Step 3: Rsync to Storage Box (only if all tasks succeeded)
-        if ($allOk) {
-            $rsyncResult = $this->syncToStorageBox();
-            $results['rsync'] = $rsyncResult;
-            if ($rsyncResult['exit'] !== 0) {
+        // Step 3: Verify archives in parallel
+        $archivePaths = $this->getArchivePaths();
+        $verifyTasks = [];
+        foreach ($results as $label => $info) {
+            if ($info['exit'] !== 0 || !isset($archivePaths[$label])) {
+                continue;
+            }
+            $archives = $archivePaths[$label];
+            $verifyTasks[$label] = function () use ($label, $archives): int {
+                foreach ($archives as $archive) {
+                    $rc = $this->verifyArchive($label, $archive);
+                    if ($rc !== 0) {
+                        return $rc;
+                    }
+                }
+                return 0;
+            };
+        }
+
+        $this->log->info('verify archive');
+        $verifyResults = $this->forkAndWait($verifyTasks);
+
+        foreach ($verifyResults as $label => $info) {
+            $results[$label]['verify'] = $info['exit'] === 0 ? 'OK' : 'ERROR';
+            if ($info['exit'] !== 0) {
                 $allOk = false;
             }
-        } else {
-            $this->log->error('Rsync skipped — not all tasks succeeded');
+        }
+        foreach ($results as $label => $info) {
+            if (!isset($info['verify'])) {
+                $results[$label]['verify'] = $info['exit'] === 0 ? '-' : 'SKIP';
+            }
+        }
+
+        // Step 4: Rsync to Storage Box (always — partial backups are better than none)
+        if (!$allOk) {
+            $this->log->warning('Not all tasks successful — execute sync anyway');
+        }
+        $rsyncResult = $this->syncToStorageBox();
+        $results['rsync'] = $rsyncResult;
+        if ($rsyncResult['exit'] !== 0) {
+            $allOk = false;
         }
 
         // Summary
@@ -237,12 +273,57 @@ class BackupRunner
     private function tarc(string $label, string $archive, string $srcDir, string $path): int
     {
         $cmd = sprintf(
-            'tar -C %s -czf %s %s',
+            'tar -C %s --use-compress-program=%s -cf %s %s',
             escapeshellarg($srcDir),
+            escapeshellarg(self::COMPRESS_PROGRAM),
             escapeshellarg($archive),
             escapeshellarg($path)
         );
         return $this->exec($label, $cmd);
+    }
+
+    /**
+     * Verifies a compressed archive by listing its contents (tar.gz)
+     * or testing gzip integrity (.sql.gz). Returns 0 on success.
+     *
+     * @param string $label   Human-readable task name for log messages.
+     * @param string $archive Absolute path of the archive to verify.
+     *
+     * @return int Exit code (0 = archive intact).
+     */
+    private function verifyArchive(string $label, string $archive): int
+    {
+        if (str_ends_with($archive, '.tar.gz')) {
+            $cmd = sprintf(
+                'tar --use-compress-program=pigz -tf %s > /dev/null',
+                escapeshellarg($archive)
+            );
+        } else {
+            $cmd = sprintf('pigz -t %s', escapeshellarg($archive));
+        }
+
+        return $this->exec($label, $cmd);
+    }
+
+    /**
+     * Returns the expected archive paths for each backup task.
+     * Used to verify archives after creation.
+     *
+     * @return array<string, list<string>> Task label => list of archive paths.
+     */
+    private function getArchivePaths(): array
+    {
+        return [
+            'home'      => [self::BACKUP_DIR . "/home-backup_{$this->date}.tar.gz"],
+            'nginx'     => [self::BACKUP_DIR . "/nginx-backup_{$this->date}.tar.gz"],
+            'repo'      => [self::BACKUP_DIR . "/repo-backup_{$this->date}.tar.gz"],
+            'php8'      => [self::BACKUP_DIR . "/php8-backup_{$this->date}.tar.gz"],
+            'mysql'     => [self::BACKUP_DIR . "/mysql-backup_{$this->date}.tar.gz"],
+            'nextcloud' => [
+                self::BACKUP_DIR . "/nc-db-backup_{$this->date}.sql.gz",
+                self::BACKUP_DIR . "/vhosts-backup_{$this->date}.tar.gz",
+            ],
+        ];
     }
 
     // -----------------------------------------------------------------------
@@ -315,8 +396,9 @@ class BackupRunner
         }
 
         $rc = $this->exec('mysql', sprintf(
-            'tar -C %s -czf %s %s',
+            'tar -C %s --use-compress-program=%s -cf %s %s',
             escapeshellarg(self::BACKUP_DIR),
+            escapeshellarg(self::COMPRESS_PROGRAM),
             escapeshellarg($tarFile),
             escapeshellarg(basename($sqlFile))
         ));
@@ -371,7 +453,7 @@ class BackupRunner
                     . ' ' . escapeshellarg(self::NC_DB_NAME)
             );
             if ($dbExitCode === 0) {
-                $dbExitCode = $this->exec('nextcloud', 'gzip ' . escapeshellarg($sqlFile));
+                $dbExitCode = $this->exec('nextcloud', self::COMPRESS_PROGRAM . ' ' . escapeshellarg($sqlFile));
             }
         } finally {
             $this->log->info('Disabling maintenance mode', ['task' => 'nextcloud']);
@@ -530,8 +612,8 @@ class BackupRunner
 
         echo "\n";
         echo $this->colorize("=== Summary ===", "\033[1m") . "\n";
-        printf("%-12s %-10s %s\n", 'Task', 'Status', 'Duration');
-        printf("%-12s %-10s %s\n", str_repeat('-', 12), str_repeat('-', 10), str_repeat('-', 10));
+        printf("%-12s %-10s %-10s %s\n", 'Task', 'Status', 'Verify', 'Duration');
+        printf("%-12s %-10s %-10s %s\n", str_repeat('-', 12), str_repeat('-', 10), str_repeat('-', 10), str_repeat('-', 10));
 
         foreach ($results as $label => $info) {
             if ($info['exit'] === 0) {
@@ -539,12 +621,23 @@ class BackupRunner
             } else {
                 $statusStr = $this->colorize('ERROR(' . $info['exit'] . ')', "\033[31m");
             }
+
+            $verify = $info['verify'] ?? '-';
+            if ($verify === 'OK') {
+                $verifyStr = $this->colorize('OK', "\033[32m");
+            } elseif ($verify === 'ERROR') {
+                $verifyStr = $this->colorize('ERROR', "\033[31m");
+            } else {
+                $verifyStr = $verify;
+            }
+
             // Colorized strings contain invisible ANSI bytes — use wider field to compensate alignment.
             $statusWidth = $this->useColors ? 20 : 10;
-            printf("%-12s %-{$statusWidth}s %s\n", $label, $statusStr, $this->formatDuration($info['duration']));
+            $verifyWidth = $this->useColors && in_array($verify, ['OK', 'ERROR'], true) ? 20 : 10;
+            printf("%-12s %-{$statusWidth}s %-{$verifyWidth}s %s\n", $label, $statusStr, $verifyStr, $this->formatDuration($info['duration']));
         }
 
-        echo str_repeat('-', 40) . "\n";
+        echo str_repeat('-', 52) . "\n";
         printf("Total:      %s\n", $this->formatDuration($totalDuration));
         printf("Size:       %s\n", $this->formatSize($totalSize));
     }

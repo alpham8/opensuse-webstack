@@ -14,7 +14,7 @@ zypper --gpg-auto-import-keys refresh
 zypper -n in -y --no-recommends \
   git vim jq \
   net-tools-deprecated \
-  docker \
+  docker pigz \
   nginx nginx-module-brotli \
   mariadb mariadb-client mariadb-errormessages \
   certbot \
