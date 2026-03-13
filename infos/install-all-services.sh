@@ -67,6 +67,7 @@ firewall-cmd --permanent --add-port=30033/tcp    # TeamSpeak Filetransfer
 firewall-cmd --permanent --add-port=10022/tcp    # TeamSpeak ServerQuery
 firewall-cmd --permanent --add-port=25565/tcp    # Minecraft
 firewall-cmd --permanent --add-port=25565/udp    # Minecraft
+firewall-cmd --permanent --add-port=2222/tcp     # Forgejo SSH (Git)
 # Custom service for Nextcloud App Calls:
 #   etc/firewalld/nextcloud-app-call.xml -> /etc/firewalld/services/
 firewall-cmd --reload
@@ -393,7 +394,97 @@ nginx -t && systemctl reload nginx
 
 
 # ==========================================================================
-# 10. DMARC REPORT PARSER
+# 10. FORGEJO (Self-Hosted Git Forge, native installation)
+# ==========================================================================
+
+# --- Factory repo for helper packages (runner, AppArmor profile, firewalld service) ---
+# NOTE: The main Forgejo package from Factory has a packaging bug:
+# It is compiled without the "bindata" build tag, causing embedded
+# locale files (Fluent .ftl) to be missing and Forgejo crashes on startup.
+# Therefore we use the official binary from codeberg.org and only the
+# helper packages (runner, AppArmor, firewalld, CLI) from Factory.
+zypper addrepo --disable --no-gpgcheck \
+  https://download.opensuse.org/repositories/openSUSE:Factory/standard/ \
+  forgejo-factory
+
+# Temporarily enable, install helper packages, disable again
+zypper modifyrepo --enable forgejo-factory
+zypper --gpg-auto-import-keys refresh forgejo-factory
+zypper install --from forgejo-factory forgejo forgejo-cli forgejo-runner forgejo-apparmor
+zypper modifyrepo --disable forgejo-factory
+
+# --- Official Forgejo binary (with bindata, replaces the packaged binary) ---
+FORGEJO_VERSION="14.0.2"
+mv /usr/bin/forgejo /usr/bin/forgejo.pkg-backup
+curl -Lo /usr/bin/forgejo \
+  "https://codeberg.org/forgejo/forgejo/releases/download/v${FORGEJO_VERSION}/forgejo-${FORGEJO_VERSION}-linux-amd64"
+chmod 755 /usr/bin/forgejo
+
+# NOTE: Updating Forgejo:
+#   1. Helper packages (runner, AppArmor):
+#      zypper modifyrepo --enable forgejo-factory
+#      zypper refresh forgejo-factory
+#      zypper update --from forgejo-factory forgejo-runner forgejo-apparmor
+#      zypper modifyrepo --disable forgejo-factory
+#   2. Forgejo binary:
+#      systemctl stop forgejo
+#      curl -Lo /usr/bin/forgejo https://codeberg.org/forgejo/forgejo/releases/download/vNEW_VERSION/forgejo-NEW_VERSION-linux-amd64
+#      chmod 755 /usr/bin/forgejo
+#      systemctl start forgejo
+
+# --- AppArmor: Allow write access to app.ini ---
+# Forgejo writes secrets (JWT, OAuth2) atomically to the config on startup.
+# The packaged AppArmor profile only allows read access — we extend it:
+cat > /etc/apparmor.d/local/forgejo <<'EOF'
+# Forgejo must write app.ini (JWT secret, OAuth2 secrets on startup)
+owner /etc/forgejo/conf/app.ini rwlk,
+EOF
+apparmor_parser -r /etc/apparmor.d/forgejo
+
+# --- Forgejo configuration ---
+# The complete app.ini is in the repo:
+#   etc/forgejo/conf/app.ini -> /etc/forgejo/conf/app.ini
+# Fill in:
+#   - [database] PASSWD       = DB password
+#   - [security] SECRET_KEY   = forgejo generate secret SECRET_KEY
+#   - [security] INTERNAL_TOKEN = forgejo generate secret INTERNAL_TOKEN
+#   - [oauth2]   JWT_SECRET   = forgejo generate secret JWT_SECRET
+#   - [mailer]   PASSWD       = SMTP password
+chown forgejo:forgejo /etc/forgejo/conf /etc/forgejo/conf/app.ini
+chmod 0750 /etc/forgejo/conf
+chmod 0600 /etc/forgejo/conf/app.ini
+
+# Log directory
+install -d -m 0750 -o forgejo -g forgejo /var/log/forgejo
+
+# Initialize database (first install)
+sudo -u forgejo GITEA_CUSTOM=/etc/forgejo GITEA_WORK_DIR=/var/lib/forgejo \
+  forgejo migrate --config /etc/forgejo/conf/app.ini
+
+systemctl enable --now forgejo
+
+# Create admin user (change password on first login):
+sudo -u forgejo GITEA_CUSTOM=/etc/forgejo GITEA_WORK_DIR=/var/lib/forgejo \
+  forgejo admin user create \
+    --username admin --email admin@example.com \
+    --admin --must-change-password --random-password \
+    --config /etc/forgejo/conf/app.ini
+
+# Copy nginx vHost from repo:
+#   etc/nginx/vhosts.d/git.example.com.conf -> /etc/nginx/vhosts.d/
+nginx -t && systemctl reload nginx
+
+# Forgejo Runner (CI/CD):
+# Generate token: forgejo-cli actions generate-runner-token
+# Register runner:
+#   forgejo-runner register --instance https://git.example.com --token TOKEN
+#   forgejo-runner daemon
+#   etc/systemd/system/forgejo-runner.service -> /etc/systemd/system/
+# systemctl enable --now forgejo-runner
+
+
+# ==========================================================================
+# 11. DMARC REPORT PARSER
 # ==========================================================================
 
 # Composer (PHP Dependency Manager)
@@ -422,7 +513,7 @@ systemctl enable --now dmarc-report-parser.timer
 
 
 # ==========================================================================
-# 11. SYSTEM TUNING
+# 12. SYSTEM TUNING
 # ==========================================================================
 
 # Set editor to vim (systemctl edit, crontab -e, etc.)
@@ -589,7 +680,7 @@ systemctl restart php-fpm
 
 
 # ==========================================================================
-# 12. CRONTAB (crontab -e)
+# 13. CRONTAB (crontab -e)
 # ==========================================================================
 # 0  3  *  *  *  /usr/local/bin/certbot renew --quiet --deploy-hook "/root/cert-post-renew.sh"
 # */5 *  *  *  *  sudo -u nginx /usr/bin/php -d memory_limit=1024M -f /srv/www/vhosts/example.com/sync.example.com/cron.php

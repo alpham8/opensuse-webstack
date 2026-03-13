@@ -1,0 +1,9 @@
+[forgejo]
+enabled = true
+filter = forgejo
+logpath = /var/log/forgejo/gitea.log
+port = http,https
+protocol = tcp
+maxretry = 3
+findtime = 1h
+bantime = 6h

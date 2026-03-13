@@ -1,0 +1,20 @@
+# Forgejo/Gitea brute-force — customized: 3 attempts in 1h
+# Original: LePresidente/gitea-bf (capacity=5, leakspeed=20s)
+# Leaky bucket: capacity=2 + leakspeed=30m = 3rd attempt within ~1h triggers
+name: LePresidente/gitea-bf
+description: "Detect Forgejo/Gitea bruteforce (custom: 3 attempts in 1h)"
+filter: "evt.Meta.log_type == 'gitea_failed_auth'"
+type: leaky
+groupby: evt.Meta.source_ip
+leakspeed: 30m
+capacity: 2
+blackhole: 6h
+labels:
+  service: gitea
+  behavior: "vcs:bruteforce"
+  classification:
+    - attack.T1110
+  spoofable: 0
+  confidence: 3
+  label: "Forgejo Bruteforce"
+  remediation: true

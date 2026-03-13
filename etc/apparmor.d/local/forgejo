@@ -1,0 +1,2 @@
+# Forgejo must write app.ini (JWT secret, OAuth2 secrets on startup)
+owner /etc/forgejo/conf/app.ini rwlk,

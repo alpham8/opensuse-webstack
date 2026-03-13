@@ -35,7 +35,7 @@ umask(0077);
 /**
  * Orchestrates parallel server backups via pcntl_fork() and syncs
  * the result to a Hetzner Storage Box. Individual backup tasks
- * (home, nginx, repo, php8, mailcow, mysql, nextcloud) run concurrently;
+ * (home, nginx, repo, forgejo, php8, mailcow, mysql, nextcloud) run concurrently;
  * rsync to offsite storage runs only when all tasks succeed.
  */
 class BackupRunner
@@ -317,6 +317,7 @@ class BackupRunner
             'home'      => [self::BACKUP_DIR . "/home-backup_{$this->date}.tar.gz"],
             'nginx'     => [self::BACKUP_DIR . "/nginx-backup_{$this->date}.tar.gz"],
             'repo'      => [self::BACKUP_DIR . "/repo-backup_{$this->date}.tar.gz"],
+            'forgejo'   => [self::BACKUP_DIR . "/forgejo-backup_{$this->date}.tar.gz"],
             'php8'      => [self::BACKUP_DIR . "/php8-backup_{$this->date}.tar.gz"],
             'mysql'     => [self::BACKUP_DIR . "/mysql-backup_{$this->date}.tar.gz"],
             'nextcloud' => [
@@ -342,6 +343,7 @@ class BackupRunner
             'home'      => [$this, 'backupHome'],
             'nginx'     => [$this, 'backupNginx'],
             'repo'      => [$this, 'backupRepo'],
+            'forgejo'   => [$this, 'backupForgejo'],
             'php8'      => [$this, 'backupPhp8'],
             'mailcow'   => [$this, 'backupMailcow'],
             'mysql'     => [$this, 'backupMysql'],
@@ -362,6 +364,11 @@ class BackupRunner
     private function backupRepo(): int
     {
         return $this->tarc('repo', self::BACKUP_DIR . "/repo-backup_{$this->date}.tar.gz", '/', 'srv/repo');
+    }
+
+    private function backupForgejo(): int
+    {
+        return $this->tarc('forgejo', self::BACKUP_DIR . "/forgejo-backup_{$this->date}.tar.gz", '/', 'var/lib/forgejo');
     }
 
     private function backupPhp8(): int

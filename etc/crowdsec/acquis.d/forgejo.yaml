@@ -1,0 +1,7 @@
+# /etc/crowdsec/acquis.d/forgejo.yaml
+#
+# Forgejo (Gitea-compatible) logs — login failures, API auth errors
+filenames:
+  - /var/log/forgejo/gitea.log
+labels:
+  type: gitea
